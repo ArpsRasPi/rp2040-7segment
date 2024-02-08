@@ -4,16 +4,17 @@
 #![no_std]
 #![no_main]
 
-use bsp::entry;
+use core::convert::Infallible;
+
+use bsp::{entry, hal::gpio::AnyPin};
 use defmt::*;
 use defmt_rtt as _;
-use embedded_hal::digital::v2::OutputPin;
+use embedded_hal::digital::v2::{OutputPin, PinState};
 use panic_probe as _;
 
 // Provide an alias for our BSP so we can switch targets quickly.
 // Uncomment the BSP you included in Cargo.toml, the rest of the code does not need to change.
 use rp_pico as bsp;
-// use sparkfun_pro_micro_rp2040 as bsp;
 
 use bsp::hal::{
     clocks::{init_clocks_and_plls, Clock},
@@ -21,6 +22,8 @@ use bsp::hal::{
     sio::Sio,
     watchdog::Watchdog,
 };
+
+const ONE: u8 = 2 + 4;
 
 #[entry]
 fn main() -> ! {
@@ -53,17 +56,35 @@ fn main() -> ! {
         &mut pac.RESETS,
     );
 
-    // This is the correct pin on the Raspberry Pico board. On other boards, even if they have an
-    // on-board LED, it might need to be changed.
-    //
-    // Notably, on the Pico W, the LED is not connected to any of the RP2040 GPIOs but to the cyw43 module instead.
-    // One way to do that is by using [embassy](https://github.com/embassy-rs/embassy/blob/main/examples/rp/src/bin/wifi_blinky.rs)
-    //
-    // If you have a Pico W and want to toggle a LED with a simple GPIO output pin, you can connect an external
-    // LED to one of the GPIO pins, and reference that pin here. Don't forget adding an appropriate resistor
-    // in series with the LED.
-    let mut led_pin = pins.led.into_push_pull_output();
+    let mut srclk = pins.gpio13.into_push_pull_output_in_state(PinState::Low);
+    let mut rclk = pins.gpio14.into_push_pull_output_in_state(PinState::Low);
+    let mut serial = pins.gpio15.into_push_pull_output_in_state(PinState::Low);
+    let value: u8 = 1;
 
+    set_display(value, &mut rclk, &mut srclk, &mut serial);
+
+    {
+        // Pull rclk Low
+        // For each bit
+        //  Set serial to value
+        //  Strobe srclk
+        // Push rclk High
+        rclk.set_low().unwrap();
+        srclk.set_low().unwrap();
+
+        for i in 0..8 {
+            match value & (1 << i) > 0 {
+                true => serial.set_low().unwrap(),
+                false => serial.set_high().unwrap(),
+            }
+            srclk.set_high().unwrap();
+            srclk.set_low().unwrap();
+        }
+        rclk.set_high().unwrap();
+        rclk.set_low().unwrap();
+    }
+
+    let mut led_pin = pins.led.into_push_pull_output();
     loop {
         info!("on!");
         led_pin.set_high().unwrap();
@@ -74,4 +95,33 @@ fn main() -> ! {
     }
 }
 
-// End of file
+fn set_display<PRCLK, PSRCLK, PSERIAL>(
+    value: u8,
+    rclk: &mut PRCLK,
+    srclk: &mut PSRCLK,
+    serial: &mut PSERIAL,
+) where
+    PRCLK: OutputPin<Error = Infallible>,
+    PSRCLK: OutputPin<Error = Infallible>,
+    PSERIAL: OutputPin<Error = Infallible>,
+{
+    info!("Setting display");
+    // Pull rclk Low
+    // For each bit
+    //  Set serial to value
+    //  Strobe srclk
+    // Push rclk High
+    rclk.set_low().unwrap();
+    srclk.set_low().unwrap();
+
+    for i in 0..8 {
+        match value & (1 << i) > 0 {
+            true => serial.set_low().unwrap(),
+            false => serial.set_high().unwrap(),
+        }
+        srclk.set_high().unwrap();
+        srclk.set_low().unwrap();
+    }
+    rclk.set_high().unwrap();
+    rclk.set_low().unwrap();
+}
