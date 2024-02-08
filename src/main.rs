@@ -6,7 +6,8 @@
 
 use core::convert::Infallible;
 
-use bsp::{entry, hal::gpio::AnyPin};
+use bsp::entry;
+use cortex_m::delay::Delay;
 use defmt::*;
 use defmt_rtt as _;
 use embedded_hal::digital::v2::{OutputPin, PinState};
@@ -23,7 +24,7 @@ use bsp::hal::{
     watchdog::Watchdog,
 };
 
-const ONE: u8 = 2 + 4;
+// const ONE: u8 = 2 + 4;
 
 #[entry]
 fn main() -> ! {
@@ -59,39 +60,12 @@ fn main() -> ! {
     let mut srclk = pins.gpio13.into_push_pull_output_in_state(PinState::Low);
     let mut rclk = pins.gpio14.into_push_pull_output_in_state(PinState::Low);
     let mut serial = pins.gpio15.into_push_pull_output_in_state(PinState::Low);
-    let value: u8 = 1;
 
-    set_display(value, &mut rclk, &mut srclk, &mut serial);
-
-    {
-        // Pull rclk Low
-        // For each bit
-        //  Set serial to value
-        //  Strobe srclk
-        // Push rclk High
-        rclk.set_low().unwrap();
-        srclk.set_low().unwrap();
-
-        for i in 0..8 {
-            match value & (1 << i) > 0 {
-                true => serial.set_low().unwrap(),
-                false => serial.set_high().unwrap(),
-            }
-            srclk.set_high().unwrap();
-            srclk.set_low().unwrap();
-        }
-        rclk.set_high().unwrap();
-        rclk.set_low().unwrap();
-    }
-
-    let mut led_pin = pins.led.into_push_pull_output();
     loop {
-        info!("on!");
-        led_pin.set_high().unwrap();
-        delay.delay_ms(500);
-        info!("off!");
-        led_pin.set_low().unwrap();
-        delay.delay_ms(500);
+        for i in 0..8 {
+            set_display(1 << i, &mut rclk, &mut srclk, &mut serial, &mut delay);
+            delay.delay_ms(200);
+        }
     }
 }
 
@@ -100,28 +74,37 @@ fn set_display<PRCLK, PSRCLK, PSERIAL>(
     rclk: &mut PRCLK,
     srclk: &mut PSRCLK,
     serial: &mut PSERIAL,
+    delay: &mut Delay,
 ) where
     PRCLK: OutputPin<Error = Infallible>,
     PSRCLK: OutputPin<Error = Infallible>,
     PSERIAL: OutputPin<Error = Infallible>,
 {
     info!("Setting display");
+    const D: u32 = 0;
     // Pull rclk Low
     // For each bit
     //  Set serial to value
     //  Strobe srclk
     // Push rclk High
     rclk.set_low().unwrap();
+    delay.delay_ms(D);
     srclk.set_low().unwrap();
+    delay.delay_ms(D);
 
     for i in 0..8 {
         match value & (1 << i) > 0 {
             true => serial.set_low().unwrap(),
             false => serial.set_high().unwrap(),
         }
+        delay.delay_ms(D);
         srclk.set_high().unwrap();
+        delay.delay_ms(D);
         srclk.set_low().unwrap();
+        delay.delay_ms(D);
     }
     rclk.set_high().unwrap();
+    delay.delay_ms(D);
     rclk.set_low().unwrap();
+    delay.delay_ms(D);
 }
