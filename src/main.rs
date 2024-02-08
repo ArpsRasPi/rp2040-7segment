@@ -81,30 +81,28 @@ fn set_display<PRCLK, PSRCLK, PSERIAL>(
     PSERIAL: OutputPin<Error = Infallible>,
 {
     info!("Setting display");
-    const D: u32 = 0;
     // Pull rclk Low
     // For each bit
     //  Set serial to value
     //  Strobe srclk
     // Push rclk High
-    rclk.set_low().unwrap();
-    delay.delay_ms(D);
-    srclk.set_low().unwrap();
-    delay.delay_ms(D);
+    set_pin(rclk, PinState::Low, delay);
+    set_pin(srclk, PinState::Low, delay);
 
     for i in 0..8 {
         match value & (1 << i) > 0 {
-            true => serial.set_low().unwrap(),
-            false => serial.set_high().unwrap(),
+            true => set_pin(serial, PinState::Low, delay),
+            false => set_pin(serial, PinState::High, delay),
         }
-        delay.delay_ms(D);
-        srclk.set_high().unwrap();
-        delay.delay_ms(D);
-        srclk.set_low().unwrap();
-        delay.delay_ms(D);
+        set_pin(srclk, PinState::High, delay);
+        set_pin(srclk, PinState::Low, delay);
     }
-    rclk.set_high().unwrap();
-    delay.delay_ms(D);
-    rclk.set_low().unwrap();
-    delay.delay_ms(D);
+    set_pin(rclk, PinState::High, delay);
+    set_pin(rclk, PinState::Low, delay);
+}
+
+fn set_pin<P: OutputPin<Error = Infallible>>(pin: &mut P, state: PinState, delay: &mut Delay) {
+    // info!("Setting pin");
+    pin.set_state(state).unwrap();
+    delay.delay_us(0);
 }
