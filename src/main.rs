@@ -17,7 +17,8 @@ use cortex_m::delay::Delay;
 use defmt::*;
 use defmt_rtt as _;
 use embedded_hal::digital::v2::{OutputPin, PinState};
-use panic_probe as _;
+// use panic_probe as _;
+extern crate panic_probe;
 
 // Provide an alias for our BSP so we can switch targets quickly.
 // Uncomment the BSP you included in Cargo.toml, the rest of the code does not need to change.
@@ -29,6 +30,13 @@ use bsp::hal::{
     sio::Sio,
     watchdog::Watchdog,
 };
+
+extern crate panic_halt;
+
+use pio_proc::pio_file;
+
+use hal::pio::PIOExt;
+use rp2040_hal as hal;
 
 // Constants defining how digits are displayed on the 7-segment display using bits of a u8 to
 // represent segments. Here 1 = a, 2 = b, 4 = c ... etc
@@ -88,11 +96,31 @@ fn main() -> ! {
     let mut rclk = pins.gpio14.into_push_pull_output_in_state(PinState::Low);
     let mut serial = pins.gpio15.into_push_pull_output_in_state(PinState::Low);
 
+    let program_with_defines = pio_file!(
+        "./src/shift_reg.pio",
+        select_program("shift_reg"), // Optional if only one program in the file
+        options(max_program_size = 32)  // Optional, defaults to 32
+    );
+
+    let program = program_with_defines.program;
+
+    // Initialize and start PIO
+    let (mut pio, sm0, _, _, _) = pac.PIO0.split(&mut pac.RESETS);
+    let installed = pio.install(&program.program).unwrap();
+    let (int, frac) = (0, 0); // as slow as possible (0 is interpreted as 65536)
+    let (mut sm, _, _) = rp2040_hal::pio::PIOBuilder::from_installed_program(installed)
+        .set_pins(serial.id(), 1)
+        .side_set_pin_base(srclk.id())
+        .clock_divisor_fixed_point(int, frac)
+        .build(sm0);
+
+    sm.start();
+
     // Endless loop - main method dies not exit.
     loop {
         // Iterate over digits and display them
         for digit in DIGITS {
-            set_display(digit, &mut rclk, &mut srclk, &mut serial, &mut delay);
+            sm.write(digit as u32);
             delay.delay_ms(200);
         }
     }
