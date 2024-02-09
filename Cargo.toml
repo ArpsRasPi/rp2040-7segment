@@ -1,6 +1,6 @@
 [package]
 edition = "2021"
-name = "rp2040-blinky"
+name = "rp2040-7segment"
 version = "0.1.0"
 license = "MIT OR Apache-2.0"
 
@@ -22,6 +22,12 @@ rp-pico = "0.8"
 # If you're not going to use a Board Support Package you'll need these:
 # rp2040-hal = { version="0.9", features=["rt", "critical-section-impl"] }
 # rp2040-boot2 = "0.3"
+
+# Trying to fix the "can't find crate for 'test'" error
+[[bin]]
+name = "rp2040-7segment"
+test = false
+bench = false
 
 # cargo build/run
 [profile.dev]
