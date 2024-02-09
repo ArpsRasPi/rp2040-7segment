@@ -132,8 +132,10 @@ fn main() -> ! {
         for digit in DIGITS {
             led_pin.set_low().unwrap();
             delay.delay_ms(200);
-            let result = tx.write((digit as u32) << 24);
-
+            // I beleive that it doesn't matter that we replicate here
+            // I think <<24 should also work. We're only shifting out
+            // the first 8 bits (and I think it's big endian)
+            let result = tx.write_u8_replicated(!digit);
             if result {
                 led_pin.set_high().unwrap();
             }
