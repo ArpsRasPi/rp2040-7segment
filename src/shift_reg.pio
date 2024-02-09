@@ -2,7 +2,8 @@
 .side_set 2 opt
 	set pindirs, 1
 start_byte:
-	set x, 7	side 0
+	pull block	side 0
+	set x, 7
 per_bit:
 	out pins, 1	side 0
 	jmp x-- per_bit	side 1

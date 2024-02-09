@@ -10,15 +10,19 @@
 #![no_std]
 #![no_main]
 
-use core::convert::Infallible;
-
-use bsp::entry;
+use bsp::{
+    entry,
+    hal::{
+        gpio::{FunctionPio0, Pin},
+        pio::PinDir,
+    },
+};
 use cortex_m::delay::Delay;
 use defmt::*;
 use defmt_rtt as _;
-use embedded_hal::digital::v2::{OutputPin, PinState};
-// use panic_probe as _;
-extern crate panic_probe;
+use embedded_hal::digital::v2::OutputPin;
+use embedded_hal::digital::v2::PinState;
+use panic_probe as _;
 
 // Provide an alias for our BSP so we can switch targets quickly.
 // Uncomment the BSP you included in Cargo.toml, the rest of the code does not need to change.
@@ -31,12 +35,9 @@ use bsp::hal::{
     watchdog::Watchdog,
 };
 
-extern crate panic_halt;
-
 use pio_proc::pio_file;
 
-use hal::pio::PIOExt;
-use rp2040_hal as hal;
+use bsp::hal::pio::PIOExt;
 
 // Constants defining how digits are displayed on the 7-segment display using bits of a u8 to
 // represent segments. Here 1 = a, 2 = b, 4 = c ... etc
@@ -92,9 +93,12 @@ fn main() -> ! {
     // Device set up ends
 
     // Change the GPIO pin assignments here
-    let mut srclk = pins.gpio13.into_push_pull_output_in_state(PinState::Low);
-    let mut rclk = pins.gpio14.into_push_pull_output_in_state(PinState::Low);
-    let mut serial = pins.gpio15.into_push_pull_output_in_state(PinState::Low);
+    let srclk: Pin<_, FunctionPio0, _> = pins.gpio13.into_function();
+    let rclk: Pin<_, FunctionPio0, _> = pins.gpio14.into_function();
+    let serial: Pin<_, FunctionPio0, _> = pins.gpio15.into_function();
+
+    // LED to get some outputs
+    let mut led_pin = pins.led.into_push_pull_output_in_state(PinState::Low);
 
     let program_with_defines = pio_file!(
         "./src/shift_reg.pio",
@@ -106,13 +110,19 @@ fn main() -> ! {
 
     // Initialize and start PIO
     let (mut pio, sm0, _, _, _) = pac.PIO0.split(&mut pac.RESETS);
-    let installed = pio.install(&program.program).unwrap();
+    let installed = pio.install(&program).unwrap();
     let (int, frac) = (0, 0); // as slow as possible (0 is interpreted as 65536)
-    let (mut sm, _, _) = rp2040_hal::pio::PIOBuilder::from_installed_program(installed)
-        .set_pins(serial.id(), 1)
-        .side_set_pin_base(srclk.id())
+    let (mut sm, mut _rx, mut tx) = bsp::hal::pio::PIOBuilder::from_program(installed)
+        .set_pins(serial.id().num, 1)
+        .side_set_pin_base(srclk.id().num)
         .clock_divisor_fixed_point(int, frac)
         .build(sm0);
+
+    sm.set_pindirs([
+        (srclk.id().num, PinDir::Output),
+        (rclk.id().num, PinDir::Output),
+        (serial.id().num, PinDir::Output),
+    ]);
 
     sm.start();
 
@@ -120,71 +130,14 @@ fn main() -> ! {
     loop {
         // Iterate over digits and display them
         for digit in DIGITS {
-            sm.write(digit as u32);
+            led_pin.set_low().unwrap();
             delay.delay_ms(200);
+            let result = tx.write((digit as u32) << 24);
+
+            if result {
+                led_pin.set_high().unwrap();
+            }
+            delay.delay_ms(1000);
         }
     }
-}
-
-/// Sets the state of the 7-segment display
-///
-/// Each segment is represented by a bit in a u8
-///
-/// Setting the state of the segments is via a 74xx595 shift register.
-///
-/// We only use 3 input pins on the 74xx595:
-/// rclk: The storage register clock. On the rising edge, will transfer the shift register contents
-/// to the storage, and therefore the output pins driving the segmets (if output enable is tied to
-/// on)
-/// srclk: The shift register clock. On the rising edge, will transfer the value of the serial pin
-/// to the first register, shifting what was in there to the second, and so on.
-/// serial: The input pin for the value to set to the first register on the rising edge of srclk
-///
-/// An outline of how these pins are manipulated to set the segments is therefore:
-///
-/// Pull rclk and srclk Low
-/// For each bit in value
-///  Set serial to !bit (as the display is common anode)
-///  Strobe srclk
-/// Push rclk High
-fn set_display<PRCLK, PSRCLK, PSERIAL>(
-    value: u8,
-    rclk: &mut PRCLK,
-    srclk: &mut PSRCLK,
-    serial: &mut PSERIAL,
-    delay: &mut Delay,
-) where
-    PRCLK: OutputPin<Error = Infallible>,
-    PSRCLK: OutputPin<Error = Infallible>,
-    PSERIAL: OutputPin<Error = Infallible>,
-{
-    info!("Setting display");
-    set_pin(rclk, PinState::Low, delay);
-    set_pin(srclk, PinState::Low, delay);
-
-    // We push in the highest value first because it'll get shifted into the highest register by the
-    // time we have pushed in the final bit
-    for i in (0..8).rev() {
-        match value & (1 << i) > 0 {
-            true => set_pin(serial, PinState::Low, delay),
-            false => set_pin(serial, PinState::High, delay),
-        }
-        set_pin(srclk, PinState::High, delay);
-        set_pin(srclk, PinState::Low, delay);
-    }
-    set_pin(rclk, PinState::High, delay);
-    set_pin(rclk, PinState::Low, delay);
-}
-
-/// Convinence function to set a pin state that allows a short delay to be added
-///
-/// This was added because the 74HC595N I was using when I wrote this would start to misbehave at
-/// 3.3v and full speed. Even a delay of 0us was enough to correct this! This was done without an
-/// oscilloscope to make sure that was actually the problem.
-///
-/// In a next iteration I'll use PIO which _should_ allow specific timings
-fn set_pin<P: OutputPin<Error = Infallible>>(pin: &mut P, state: PinState, delay: &mut Delay) {
-    info!("Setting pin");
-    pin.set_state(state).unwrap();
-    delay.delay_us(0);
 }
