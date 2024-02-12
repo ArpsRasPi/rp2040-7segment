@@ -1,8 +1,8 @@
 //! Uses a Pico to drive a 74xx595 to illumiate digits on a 7-segment display.
 //!
-//! This code assumes that the outputs Qa-Qg on the shift register are wired to segments a-g respectively on the 7-segment
+//! This code assumes that the outputs Qa-Qh on the shift register are wired to segments a-h respectively on the 7-segment
 //! display. Typically the segments are labled 'a' to the top segment, then assigned alphabetically in a clockwise
-//! order until finally assigning 'g' to the centre segment.
+//! order until finally assigning 'g' to the centre segment and 'h' to a decimal (if present).
 //!
 //! In the code, SRCLK, RCLK and SERIAL lines are connected toi GPIO pins 13, 14 and 15
 //! respectively.
@@ -41,6 +41,8 @@ use bsp::hal::pio::PIOExt;
 
 // Constants defining how digits are displayed on the 7-segment display using bits of a u8 to
 // represent segments. Here 1 = a, 2 = b, 4 = c ... etc
+// Note: this ordering is helpful because the pins are set in the PIO MSB first, so the
+// 'h' bit gets pushed first. i.e. HGFEDCBA
 const ONE: u8 = 2 + 4;
 const TWO: u8 = 1 + 2 + 64 + 16 + 8;
 const THREE: u8 = 1 + 2 + 64 + 4 + 8;
@@ -97,7 +99,7 @@ fn main() -> ! {
     let rclk: Pin<_, FunctionPio0, _> = pins.gpio14.into_function();
     let serial: Pin<_, FunctionPio0, _> = pins.gpio15.into_function();
 
-    // LED to get some outputs
+    // LED to get some feedback that words are being transmitted to the PIO SM
     let mut led_pin = pins.led.into_push_pull_output_in_state(PinState::Low);
 
     let program_with_defines = pio_file!(
@@ -113,11 +115,12 @@ fn main() -> ! {
     let installed = pio.install(&program).unwrap();
     let (int, frac) = (0, 0); // as slow as possible (0 is interpreted as 65536)
     let (mut sm, mut _rx, mut tx) = bsp::hal::pio::PIOBuilder::from_program(installed)
-        .set_pins(serial.id().num, 1)
+        .out_pins(serial.id().num, 1)
         .side_set_pin_base(srclk.id().num)
         .clock_divisor_fixed_point(int, frac)
         .build(sm0);
 
+    // Make sure all the pins are set to outputs
     sm.set_pindirs([
         (srclk.id().num, PinDir::Output),
         (rclk.id().num, PinDir::Output),
@@ -132,14 +135,17 @@ fn main() -> ! {
         for digit in DIGITS {
             led_pin.set_low().unwrap();
             delay.delay_ms(200);
-            // I beleive that it doesn't matter that we replicate here
-            // I think <<24 should also work. We're only shifting out
-            // the first 8 bits (and I think it's big endian)
-            let result = tx.write_u8_replicated(!digit);
+            // In the PIO assembly, OUT PINS, 1 shifts the MSB to the output pin
+            // so we shift the 8 bits we need into the top byte of the word.
+            // The word is then HGFEDCBA_00000000_00000000_00000000
+            // Note: this is configurable using out_shift_direction in PIOBuilder
+            let result = tx.write((!digit as u32) << 24);
+
+            // If we were able to tx the word, flash the LED on.
             if result {
                 led_pin.set_high().unwrap();
             }
-            delay.delay_ms(1000);
+            delay.delay_ms(800);
         }
     }
 }
