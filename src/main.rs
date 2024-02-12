@@ -129,7 +129,7 @@ fn main() -> ! {
 
     sm.start();
 
-    // Endless loop - main method dies not exit.
+    // Endless loop - main method does not exit.
     loop {
         // Iterate over digits and display them
         for digit in DIGITS {

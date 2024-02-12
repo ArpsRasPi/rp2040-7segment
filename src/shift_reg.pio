@@ -1,11 +1,18 @@
-.program shift_reg
-.side_set 2 opt
-	set pindirs, 1
-start_byte:
-	pull block	side 0b00
-	set x, 7
-per_bit:
-	out pins, 1	side 0b00
-	jmp x-- per_bit	side 0b01
-finish_byte:
-	jmp start_byte	side 0b10
+.program shift_reg			; name the program
+.side_set 2 opt				; use 2 pins for side sets
+	set pindirs, 1			; set the data pin to output
+start_byte:				; label to return to after each byte is shifted
+	pull block	side 0b00	; pull a word from the FIFO. Block here if empty
+					; also side set RCLK and SRCLK to LOW
+	set x, 7			; put 7 in the X scratch register
+per_bit:				; label to return to for each bit 
+	out pins, 1	side 0b00	; shift MSB to data pin
+					; also side set RCLK and SRCLK to LOW
+	jmp x-- per_bit	side 0b01	; if x>0 jmp to per_bit
+					; also set SRCLK to high 
+					; this leading edge shifts the value of the data pin to the shift register
+finish_byte:				; label for instructions to carry out at end of start_byte
+					; (not needed but included for clarity)
+	jmp start_byte	side 0b10	; return to the top of the program
+					; also set RCLK to high, moving the shiftred data into the storage register
+					; and setting the shift register output pins
