@@ -8,7 +8,7 @@ start_byte:				; label to return to after each byte is shifted
 per_bit:				; label to return to for each bit 
 	out pins, 1	side 0b00	; shift MSB to data pin
 					; also side set RCLK and SRCLK to LOW
-	jmp x-- per_bit	side 0b01	; if x>0 jmp to per_bit
+	jmp x-- per_bit	side 0b01	; if x>0 jmp to per_bit and decrement x
 					; also set SRCLK to high 
 					; this leading edge shifts the value of the data pin to the shift register
 finish_byte:				; label for instructions to carry out at end of start_byte
