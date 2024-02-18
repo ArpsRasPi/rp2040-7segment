@@ -100,8 +100,9 @@ fn main() -> ! {
     let serial: Pin<_, FunctionPio0, _> = pins.gpio15.into_function();
 
     // LED to get some feedback that words are being transmitted to the PIO SM
-    let mut led_pin = pins.led.into_push_pull_output_in_state(PinState::Low);
+    let mut led_pin = pins.gpio16.into_push_pull_output_in_state(PinState::Low);
 
+    info!("Setting up PIO SM");
     let program_with_defines = pio_file!(
         "./src/shift_reg.pio",
         select_program("shift_reg"), // Optional if only one program in the file
@@ -127,7 +128,10 @@ fn main() -> ! {
         (serial.id().num, PinDir::Output),
     ]);
 
+    info!("Starting PIO SM");
     sm.start();
+
+    let mut i = 0;
 
     // Endless loop - main method does not exit.
     loop {
@@ -139,6 +143,7 @@ fn main() -> ! {
             // so we shift the 8 bits we need into the top byte of the word.
             // The word is then HGFEDCBA_00000000_00000000_00000000
             // Note: this is configurable using out_shift_direction in PIOBuilder
+            info!("Writing {} as {} to PIO SM tx FIFO", i, digit);
             let result = tx.write((!digit as u32) << 24);
 
             // If we were able to tx the word, flash the LED on.
@@ -146,6 +151,7 @@ fn main() -> ! {
                 led_pin.set_high().unwrap();
             }
             delay.delay_ms(800);
+            i = (i + 1) % DIGITS.len();
         }
     }
 }
