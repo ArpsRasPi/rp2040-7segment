@@ -43,6 +43,13 @@ use bsp::hal::pio::PIOExt;
 // represent segments. Here 1 = a, 2 = b, 4 = c ... etc
 // Note: this ordering is helpful because the pins are set in the PIO MSB first, so the
 // 'h' bit gets pushed first. i.e. HGFEDCBA
+//
+//      1
+//  32      2
+//      64
+//  16      4
+//      8       128
+const ZERO: u8 = 1 + 2 + 4 + 8 + 16 + 32;
 const ONE: u8 = 2 + 4;
 const TWO: u8 = 1 + 2 + 64 + 16 + 8;
 const THREE: u8 = 1 + 2 + 64 + 4 + 8;
@@ -52,10 +59,20 @@ const SIX: u8 = 1 + 32 + 64 + 4 + 8 + 16;
 const SEVEN: u8 = 1 + 2 + 4;
 const EIGHT: u8 = 1 + 2 + 4 + 8 + 16 + 32 + 64;
 const NINE: u8 = 1 + 2 + 32 + 64 + 4 + 8;
-const ZERO: u8 = 1 + 2 + 4 + 8 + 16 + 32;
+const HEX_A: u8 = 1 + 2 + 4 + 16 + 32 + 64;
+const HEX_B: u8 = 4 + 8 + 16 + 32 + 64;
+const HEX_C: u8 = 1 + 8 + 16 + 32;
+const HEX_D: u8 = 2 + 4 + 8 + 16 + 64;
+const HEX_E: u8 = 1 + 8 + 16 + 32 + 64;
+const HEX_F: u8 = 1 + 16 + 32 + 64;
+
+const DELAY: u32 = 30;
 
 // Convinience array for mapping numeric value (the index of the array) to display value
-const DIGITS: [u8; 10] = [ZERO, ONE, TWO, THREE, FOUR, FIVE, SIX, SEVEN, EIGHT, NINE];
+const DIGITS: [u8; 16] = [
+    ZERO, ONE, TWO, THREE, FOUR, FIVE, SIX, SEVEN, EIGHT, NINE, HEX_A, HEX_B, HEX_C, HEX_D, HEX_E,
+    HEX_F,
+];
 
 /// Entry point for embedded no_std applications.
 ///
@@ -114,7 +131,7 @@ fn main() -> ! {
     // Initialize and start PIO
     let (mut pio, sm0, _, _, _) = pac.PIO0.split(&mut pac.RESETS);
     let installed = pio.install(&program).unwrap();
-    let (int, frac) = (0, 0); // as slow as possible (0 is interpreted as 65536)
+    let (int, frac) = (10, 0); // should set tw = 80ns. 75ns is the min tw at 2v 25C, so should work reliably
     let (mut sm, mut _rx, mut tx) = bsp::hal::pio::PIOBuilder::from_program(installed)
         .out_pins(serial.id().num, 1)
         .side_set_pin_base(srclk.id().num)
@@ -137,8 +154,8 @@ fn main() -> ! {
     loop {
         // Iterate over digits and display them
         for digit in DIGITS {
+            delay.delay_ms(DELAY);
             led_pin.set_low().unwrap();
-            delay.delay_ms(200);
             // In the PIO assembly, OUT PINS, 1 shifts the MSB to the output pin
             // so we shift the 8 bits we need into the top byte of the word.
             // The word is then HGFEDCBA_00000000_00000000_00000000
@@ -146,11 +163,11 @@ fn main() -> ! {
             info!("Writing {} as {} to PIO SM tx FIFO", i, digit);
             let result = tx.write((!digit as u32) << 24);
 
+            delay.delay_ms(DELAY);
             // If we were able to tx the word, flash the LED on.
             if result {
                 led_pin.set_high().unwrap();
             }
-            delay.delay_ms(800);
             i = (i + 1) % DIGITS.len();
         }
     }
